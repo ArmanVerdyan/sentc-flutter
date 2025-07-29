@@ -65,13 +65,13 @@ Future<Group> getGroup(
   final groupKey = "group_data_user_${userId}_id_$groupId";
 
   final groupJson = await storage.getItem(groupKey);
-
-  final jwt = await user.getJwt();
-
+  
   if (groupJson != null) {
     final group = Group.fromJson(jsonDecode(groupJson), baseUrl, appToken, user, parent);
 
     if (group.lastCheckTime + 60000 * 5 < DateTime.now().millisecondsSinceEpoch) {
+      final jwt = await user.getJwt();
+
       //load the group from json data and just look for group updates
       final update = await api_group.groupGetGroupUpdates(
         baseUrl: baseUrl,
@@ -91,6 +91,8 @@ Future<Group> getGroup(
 
     return group;
   }
+
+  final jwt = await user.getJwt();
 
   //group data was not in the cache
   final out = await api_group.groupGetGroupData(
