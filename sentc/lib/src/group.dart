@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:sentc/src/crypto/abstract_sym_crypto.dart';
 import 'package:sentc/sentc.dart';
+import 'package:sentc/src/crypto/abstract_sym_crypto.dart';
+
 import '../src/generated.dart' as plugin;
 
 PrepareKeysResult prepareKeys(List<GroupKey> keys, int page) {
@@ -39,15 +40,7 @@ class PrepareKeysResult {
 }
 
 //______________________________________________________________________________________________________________________
-Future<Group> getGroup(
-  String groupId,
-  String baseUrl,
-  String appToken,
-  User user, [
-  bool parent = false,
-  String? groupAsMember,
-  bool rek = false,
-]) async {
+Future<Group> getGroup(String groupId, String baseUrl, String appToken, User user, [bool parent = false, String? groupAsMember, bool rek = false]) async {
   final storage = Sentc.getStorage();
 
   String userId;
@@ -62,22 +55,14 @@ Future<Group> getGroup(
 
   final groupJson = await storage.getItem(groupKey);
 
-  final jwt = await user.getJwt();
-
   if (groupJson != null) {
-    final group =
-        Group.fromJson(jsonDecode(groupJson), baseUrl, appToken, user, parent);
+    final group = Group.fromJson(jsonDecode(groupJson), baseUrl, appToken, user, parent);
 
-    if (group.lastCheckTime + 60000 * 5 <
-        DateTime.now().millisecondsSinceEpoch) {
+    if (group.lastCheckTime + 60000 * 5 < DateTime.now().millisecondsSinceEpoch) {
+      final jwt = await user.getJwt();
+
       //load the group from json data and just look for group updates
-      final update = await Sentc.getApi().groupGetGroupUpdates(
-        baseUrl: baseUrl,
-        authToken: appToken,
-        jwt: jwt,
-        id: groupId,
-        groupAsMember: groupAsMember,
-      );
+      final update = await Sentc.getApi().groupGetGroupUpdates(baseUrl: baseUrl, authToken: appToken, jwt: jwt, id: groupId, groupAsMember: groupAsMember);
 
       group.rank = update.rank;
       group.keyUpdate = update.keyUpdate;
@@ -90,14 +75,10 @@ Future<Group> getGroup(
     return group;
   }
 
+  final jwt = await user.getJwt();
+
   //group data was not in the cache
-  final out = await Sentc.getApi().groupGetGroupData(
-    baseUrl: baseUrl,
-    authToken: appToken,
-    jwt: jwt,
-    id: groupId,
-    groupAsMember: groupAsMember,
-  );
+  final out = await Sentc.getApi().groupGetGroupData(baseUrl: baseUrl, authToken: appToken, jwt: jwt, id: groupId, groupAsMember: groupAsMember);
 
   final accessByGroupAsMember = out.accessByGroupAsMember;
 
@@ -114,30 +95,10 @@ Future<Group> getGroup(
     //rec here because the user might be in a parent of the parent group or so
     //check the tree until we found the group where the user access by user
 
-    await getGroup(out.parentGroupId!, baseUrl, appToken, user, false,
-        groupAsMember, true);
+    await getGroup(out.parentGroupId!, baseUrl, appToken, user, false, groupAsMember, true);
   }
 
-  final groupObj = Group._(
-    baseUrl,
-    appToken,
-    user,
-    groupId,
-    out.parentGroupId,
-    parent,
-    out.rank,
-    out.keyUpdate,
-    out.createdTime,
-    out.joinedTime,
-    [],
-    {},
-    "_newestKeyId",
-    out.accessByParentGroup,
-    accessByGroupAsMember,
-    [],
-    [],
-    DateTime.now().millisecondsSinceEpoch,
-  );
+  final groupObj = Group._(baseUrl, appToken, user, groupId, out.parentGroupId, parent, out.rank, out.keyUpdate, out.createdTime, out.joinedTime, [], {}, "_newestKeyId", out.accessByParentGroup, accessByGroupAsMember, [], [], DateTime.now().millisecondsSinceEpoch);
 
   final keys = await groupObj.decryptKey(out.keys);
   Map<String, int> keyMap = {};
@@ -160,19 +121,14 @@ Future<Group> getGroup(
   final decryptedHmacKeys = await groupObj.decryptHmacKeys(out.hmacKeys);
   groupObj._hmacKeys = decryptedHmacKeys;
 
-  final decryptedSortableKeys =
-      await groupObj.decryptSortableKeys(out.sortableKeys);
+  final decryptedSortableKeys = await groupObj.decryptSortableKeys(out.sortableKeys);
   groupObj._sortableKeys = decryptedSortableKeys;
 
   await Future.wait([
     //store the group data
     storage.set(groupKey, jsonEncode(groupObj)),
     //save always the newest public key
-    storage.set(
-      "group_public_key_$groupId",
-      jsonEncode(
-          PublicGroupKeyData(keys[0].groupKeyId, keys[0].exportedPublicKey)),
-    ),
+    storage.set("group_public_key_$groupId", jsonEncode(PublicGroupKeyData(keys[0].groupKeyId, keys[0].exportedPublicKey))),
   ]);
 
   return groupObj;
@@ -181,41 +137,14 @@ Future<Group> getGroup(
 //______________________________________________________________________________________________________________________
 
 class GroupKey extends plugin.GroupKeyData {
-  GroupKey({
-    required super.privateGroupKey,
-    required super.publicGroupKey,
-    required super.groupKey,
-    required super.time,
-    required super.groupKeyId,
-    required super.exportedPublicKey,
-  });
+  GroupKey({required super.privateGroupKey, required super.publicGroupKey, required super.groupKey, required super.time, required super.groupKeyId, required super.exportedPublicKey});
 
-  factory GroupKey.fromJson(Map<String, dynamic> json) => GroupKey(
-        privateGroupKey: json['privateGroupKey'] as String,
-        publicGroupKey: json['publicGroupKey'] as String,
-        groupKey: json['groupKey'] as String,
-        time: json['time'] as String,
-        groupKeyId: json['groupKeyId'] as String,
-        exportedPublicKey: json["exportedPublicKey"] as String,
-      );
+  factory GroupKey.fromJson(Map<String, dynamic> json) =>
+      GroupKey(privateGroupKey: json['privateGroupKey'] as String, publicGroupKey: json['publicGroupKey'] as String, groupKey: json['groupKey'] as String, time: json['time'] as String, groupKeyId: json['groupKeyId'] as String, exportedPublicKey: json["exportedPublicKey"] as String);
 
-  Map<String, dynamic> toJson() => <String, dynamic>{
-        'privateGroupKey': privateGroupKey,
-        'publicGroupKey': publicGroupKey,
-        'groupKey': groupKey,
-        'time': time,
-        'groupKeyId': groupKeyId,
-        'exportedPublicKey': exportedPublicKey
-      };
+  Map<String, dynamic> toJson() => <String, dynamic>{'privateGroupKey': privateGroupKey, 'publicGroupKey': publicGroupKey, 'groupKey': groupKey, 'time': time, 'groupKeyId': groupKeyId, 'exportedPublicKey': exportedPublicKey};
 
-  factory GroupKey.fromServer(GroupKeyData key) => GroupKey(
-        privateGroupKey: key.privateGroupKey,
-        publicGroupKey: key.publicGroupKey,
-        groupKey: key.groupKey,
-        time: key.time,
-        groupKeyId: key.groupKeyId,
-        exportedPublicKey: key.exportedPublicKey,
-      );
+  factory GroupKey.fromServer(GroupKeyData key) => GroupKey(privateGroupKey: key.privateGroupKey, publicGroupKey: key.publicGroupKey, groupKey: key.groupKey, time: key.time, groupKeyId: key.groupKeyId, exportedPublicKey: key.exportedPublicKey);
 }
 
 //______________________________________________________________________________________________________________________
@@ -261,33 +190,21 @@ class Group extends AbstractSymCrypto {
     this.lastCheckTime,
   );
 
-  Group.fromJson(
-    Map<String, dynamic> json,
-    super.baseUrl,
-    super.appToken,
-    this._user,
-    this._fromParent,
-  )   : groupId = json["groupId"],
-        lastCheckTime = json["lastCheckTime"],
-        keyUpdate = json["keyUpdate"],
-        parentGroupId = json["parentGroupId"],
-        createdTime = json["createdTime"],
-        joinedTime = json["joinedTime"],
-        rank = json["rank"],
-        _keyMap = Map<String, int>.from(
-            jsonDecode(json["keyMap"]) as Map<String, dynamic>),
-        _newestKeyId = json["newestKeyId"],
-        accessByParentGroup = json["accessByParentGroup"],
-        accessByGroupAsMember = json["accessByGroupAsMember"],
-        _keys = (jsonDecode(json["keys"]) as List)
-            .map((e) => GroupKey.fromJson(e))
-            .toList(),
-        _hmacKeys = (jsonDecode(json["hmacKeys"]) as List<dynamic>)
-            .map((e) => e as String)
-            .toList(),
-        _sortableKeys = (jsonDecode(json["sortableKeys"]) as List<dynamic>)
-            .map((e) => e as String)
-            .toList();
+  Group.fromJson(Map<String, dynamic> json, super.baseUrl, super.appToken, this._user, this._fromParent)
+    : groupId = json["groupId"],
+      lastCheckTime = json["lastCheckTime"],
+      keyUpdate = json["keyUpdate"],
+      parentGroupId = json["parentGroupId"],
+      createdTime = json["createdTime"],
+      joinedTime = json["joinedTime"],
+      rank = json["rank"],
+      _keyMap = Map<String, int>.from(jsonDecode(json["keyMap"]) as Map<String, dynamic>),
+      _newestKeyId = json["newestKeyId"],
+      accessByParentGroup = json["accessByParentGroup"],
+      accessByGroupAsMember = json["accessByGroupAsMember"],
+      _keys = (jsonDecode(json["keys"]) as List).map((e) => GroupKey.fromJson(e)).toList(),
+      _hmacKeys = (jsonDecode(json["hmacKeys"]) as List<dynamic>).map((e) => e as String).toList(),
+      _sortableKeys = (jsonDecode(json["sortableKeys"]) as List<dynamic>).map((e) => e as String).toList();
 
   Map<String, dynamic> toJson() {
     return {
@@ -343,8 +260,7 @@ class Group extends AbstractSymCrypto {
   Future<SymKeyToEncryptResult> getSymKeyToEncrypt() {
     final latestKey = _getNewestKey()!;
 
-    return Future.value(
-        SymKeyToEncryptResult(latestKey.groupKeyId, latestKey.groupKey));
+    return Future.value(SymKeyToEncryptResult(latestKey.groupKeyId, latestKey.groupKey));
   }
 
   @override
@@ -384,14 +300,7 @@ class Group extends AbstractSymCrypto {
     if (keyIndex == null) {
       final jwt = await getJwt();
 
-      final fetchedKey = await Sentc.getApi().groupGetGroupKey(
-        baseUrl: baseUrl,
-        authToken: appToken,
-        jwt: jwt,
-        id: groupId,
-        keyId: keyId,
-        groupAsMember: accessByGroupAsMember,
-      );
+      final fetchedKey = await Sentc.getApi().groupGetGroupKey(baseUrl: baseUrl, authToken: appToken, jwt: jwt, id: groupId, keyId: keyId, groupAsMember: accessByGroupAsMember);
 
       final decryptedKey = await decryptKey([fetchedKey]);
 
@@ -405,11 +314,7 @@ class Group extends AbstractSymCrypto {
         _newestKeyId = decryptedKey[0].groupKeyId;
 
         //save also the newest key in the cache
-        storage.set(
-          "group_public_key_$groupId",
-          jsonEncode(PublicGroupKeyData(
-              _newestKeyId, decryptedKey[0].exportedPublicKey)),
-        );
+        storage.set("group_public_key_$groupId", jsonEncode(PublicGroupKeyData(_newestKeyId, decryptedKey[0].exportedPublicKey)));
       }
 
       String actualUserId;
@@ -425,8 +330,7 @@ class Group extends AbstractSymCrypto {
 
       keyIndex = _keyMap[keyId];
       if (keyIndex == null) {
-        throw Exception(
-            "Group key not found. Maybe done key rotation will help");
+        throw Exception("Group key not found. Maybe done key rotation will help");
       }
     }
 
@@ -460,40 +364,23 @@ class Group extends AbstractSymCrypto {
     final groupJson = await storage.getItem(groupKey);
 
     if (groupJson == null) {
-      throw Exception(
-        "Parent group not found. THis group was access from parent group but the parent group data is gone",
-      );
+      throw Exception("Parent group not found. THis group was access from parent group but the parent group data is gone");
     }
 
-    return Group.fromJson(
-      jsonDecode(groupJson),
-      baseUrl,
-      appToken,
-      _user,
-      false,
-    );
+    return Group.fromJson(jsonDecode(groupJson), baseUrl, appToken, _user, false);
   }
 
   Future<Group> _getGroupRefFromGroupAsMember() async {
     //access over group as member
     final storage = Sentc.getStorage();
-    final groupKey =
-        "group_data_user_${_user.userId}_id_$accessByGroupAsMember";
+    final groupKey = "group_data_user_${_user.userId}_id_$accessByGroupAsMember";
     final groupJson = await storage.getItem(groupKey);
 
     if (groupJson == null) {
-      throw Exception(
-        "Connected group not found. This group was access from a connected group but the group data is gone.",
-      );
+      throw Exception("Connected group not found. This group was access from a connected group but the group data is gone.");
     }
 
-    return Group.fromJson(
-      jsonDecode(groupJson),
-      baseUrl,
-      appToken,
-      _user,
-      false,
-    );
+    return Group.fromJson(jsonDecode(groupJson), baseUrl, appToken, _user, false);
   }
 
   Future<String> _getPublicKey() async {
@@ -508,9 +395,7 @@ class Group extends AbstractSymCrypto {
       final newestKey = parentGroup._getNewestKey();
 
       if (newestKey == null) {
-        throw Exception(
-          "Parent group not found. This group was access from parent group but the parent group data is gone.",
-        );
+        throw Exception("Parent group not found. This group was access from parent group but the parent group data is gone.");
       }
 
       return newestKey.publicGroupKey;
@@ -521,9 +406,7 @@ class Group extends AbstractSymCrypto {
     final newestKey = connectedGroup._getNewestKey();
 
     if (newestKey == null) {
-      throw Exception(
-        "Connected group not found. This group was access from a connected group but the group data is gone.",
-      );
+      throw Exception("Connected group not found. This group was access from a connected group but the group data is gone.");
     }
 
     return newestKey.publicGroupKey;
@@ -557,8 +440,7 @@ class Group extends AbstractSymCrypto {
       var key = keys[i];
       final privateKey = await _getPrivateKey(key.privateKeyId);
 
-      final decryptedKeys = await Sentc.getApi()
-          .groupDecryptKey(privateKey: privateKey, serverKeyData: key.keyData);
+      final decryptedKeys = await Sentc.getApi().groupDecryptKey(privateKey: privateKey, serverKeyData: key.keyData);
 
       list.add(GroupKey.fromServer(decryptedKeys));
     }
@@ -574,8 +456,7 @@ class Group extends AbstractSymCrypto {
 
       final groupKey = await getSymKeyById(key.groupKeyId);
 
-      final decryptedHmacKey = await Sentc.getApi()
-          .groupDecryptHmacKey(groupKey: groupKey, serverKeyData: key.keyData);
+      final decryptedHmacKey = await Sentc.getApi().groupDecryptHmacKey(groupKey: groupKey, serverKeyData: key.keyData);
 
       list.add(decryptedHmacKey);
     }
@@ -583,8 +464,7 @@ class Group extends AbstractSymCrypto {
     return list;
   }
 
-  Future<List<String>> decryptSortableKeys(
-      List<GroupOutDataSortableKeys> keys) async {
+  Future<List<String>> decryptSortableKeys(List<GroupOutDataSortableKeys> keys) async {
     List<String> list = [];
 
     for (var i = 0; i < keys.length; ++i) {
@@ -592,8 +472,7 @@ class Group extends AbstractSymCrypto {
 
       final groupKey = await getSymKeyById(key.groupKeyId);
 
-      final decryptedKey = await Sentc.getApi().groupDecryptSortableKey(
-          groupKey: groupKey, serverKeyData: key.keyData);
+      final decryptedKey = await Sentc.getApi().groupDecryptSortableKey(groupKey: groupKey, serverKeyData: key.keyData);
 
       list.add(decryptedKey);
     }
@@ -611,15 +490,7 @@ class Group extends AbstractSymCrypto {
     final List<GroupKey> keys = [];
 
     while (nextFetch) {
-      final fetchedKeys = await Sentc.getApi().groupGetGroupKeys(
-        baseUrl: baseUrl,
-        authToken: appToken,
-        jwt: jwt,
-        id: groupId,
-        lastFetchedTime: lastItem.time,
-        lastFetchedKeyId: lastItem.groupKeyId,
-        groupAsMember: accessByGroupAsMember,
-      );
+      final fetchedKeys = await Sentc.getApi().groupGetGroupKeys(baseUrl: baseUrl, authToken: appToken, jwt: jwt, id: groupId, lastFetchedTime: lastItem.time, lastFetchedKeyId: lastItem.groupKeyId, groupAsMember: accessByGroupAsMember);
 
       final decryptedKeys = await decryptKey(fetchedKeys);
 
@@ -646,41 +517,24 @@ class Group extends AbstractSymCrypto {
   deleteGroup() async {
     final jwt = await getJwt();
 
-    return Sentc.getApi().groupDeleteGroup(
-      baseUrl: baseUrl,
-      authToken: appToken,
-      jwt: jwt,
-      id: groupId,
-      adminRank: rank,
-      groupAsMember: accessByGroupAsMember,
-    );
+    return Sentc.getApi().groupDeleteGroup(baseUrl: baseUrl, authToken: appToken, jwt: jwt, id: groupId, adminRank: rank, groupAsMember: accessByGroupAsMember);
   }
 
   Future<Group> getChildGroup(String groupId) {
-    return getGroup(
-        groupId, baseUrl, appToken, _user, true, accessByGroupAsMember);
+    return getGroup(groupId, baseUrl, appToken, _user, true, accessByGroupAsMember);
   }
 
   Future<Group> getConnectedGroup(String groupId) {
     return getGroup(groupId, baseUrl, appToken, _user, false, this.groupId);
   }
 
-  Future<List<GroupChildrenList>> getChildren(
-      [GroupChildrenList? lastFetchedItem]) async {
+  Future<List<GroupChildrenList>> getChildren([GroupChildrenList? lastFetchedItem]) async {
     final jwt = await getJwt();
 
     final lastFetchedTime = lastFetchedItem?.time ?? "0";
     final lastFetchedGroupId = lastFetchedItem?.groupId ?? "none";
 
-    return Sentc.getApi().groupGetAllFirstLevelChildren(
-      baseUrl: baseUrl,
-      authToken: appToken,
-      jwt: jwt,
-      id: groupId,
-      lastFetchedTime: lastFetchedTime,
-      lastFetchedGroupId: lastFetchedGroupId,
-      groupAsMember: accessByGroupAsMember,
-    );
+    return Sentc.getApi().groupGetAllFirstLevelChildren(baseUrl: baseUrl, authToken: appToken, jwt: jwt, id: groupId, lastFetchedTime: lastFetchedTime, lastFetchedGroupId: lastFetchedGroupId, groupAsMember: accessByGroupAsMember);
   }
 
   Future<String> prepareCreateChildGroup() {
@@ -693,63 +547,32 @@ class Group extends AbstractSymCrypto {
     final jwt = await getJwt();
     final lastKey = _getNewestKey()!.publicGroupKey;
 
-    return Sentc.getApi().groupCreateChildGroup(
-      baseUrl: baseUrl,
-      authToken: appToken,
-      jwt: jwt,
-      parentPublicKey: lastKey,
-      parentId: groupId,
-      adminRank: rank,
-      groupAsMember: accessByGroupAsMember,
-    );
+    return Sentc.getApi().groupCreateChildGroup(baseUrl: baseUrl, authToken: appToken, jwt: jwt, parentPublicKey: lastKey, parentId: groupId, adminRank: rank, groupAsMember: accessByGroupAsMember);
   }
 
   Future<String> createConnectedGroup() async {
     final jwt = await getJwt();
     final lastKey = _getNewestKey()!.publicGroupKey;
 
-    return Sentc.getApi().groupCreateConnectedGroup(
-      baseUrl: baseUrl,
-      authToken: appToken,
-      jwt: jwt,
-      connectedGroupId: groupId,
-      adminRank: rank,
-      parentPublicKey: lastKey,
-      groupAsMember: accessByGroupAsMember,
-    );
+    return Sentc.getApi().groupCreateConnectedGroup(baseUrl: baseUrl, authToken: appToken, jwt: jwt, connectedGroupId: groupId, adminRank: rank, parentPublicKey: lastKey, groupAsMember: accessByGroupAsMember);
   }
 
   Future<void> groupUpdateCheck() async {
     final jwt = await getJwt();
 
-    final update = await Sentc.getApi().groupGetGroupUpdates(
-      baseUrl: baseUrl,
-      authToken: appToken,
-      jwt: jwt,
-      id: groupId,
-      groupAsMember: accessByGroupAsMember,
-    );
+    final update = await Sentc.getApi().groupGetGroupUpdates(baseUrl: baseUrl, authToken: appToken, jwt: jwt, id: groupId, groupAsMember: accessByGroupAsMember);
 
     rank = update.rank;
     lastCheckTime = DateTime.now().millisecondsSinceEpoch;
   }
 
-  Future<List<GroupUserListItem>> getMember(
-      [GroupUserListItem? lastFetchedItem]) async {
+  Future<List<GroupUserListItem>> getMember([GroupUserListItem? lastFetchedItem]) async {
     final jwt = await getJwt();
 
     final lastFetchedTime = lastFetchedItem?.joinedTime ?? "0";
     final lastFetchedId = lastFetchedItem?.userId ?? "none";
 
-    return Sentc.getApi().groupGetMember(
-      baseUrl: baseUrl,
-      authToken: appToken,
-      jwt: jwt,
-      id: groupId,
-      lastFetchedTime: lastFetchedTime,
-      lastFetchedId: lastFetchedId,
-      groupAsMember: accessByGroupAsMember,
-    );
+    return Sentc.getApi().groupGetMember(baseUrl: baseUrl, authToken: appToken, jwt: jwt, id: groupId, lastFetchedTime: lastFetchedTime, lastFetchedId: lastFetchedId, groupAsMember: accessByGroupAsMember);
   }
 
   //____________________________________________________________________________________________________________________
@@ -764,12 +587,7 @@ class Group extends AbstractSymCrypto {
       signKey = await getSignKey();
     }
 
-    return Sentc.getApi().groupPrepareKeyRotation(
-      preGroupKey: _getNewestKey()!.groupKey,
-      publicKey: publicKey,
-      signKey: signKey,
-      starter: _user.userId,
-    );
+    return Sentc.getApi().groupPrepareKeyRotation(preGroupKey: _getNewestKey()!.groupKey, publicKey: publicKey, signKey: signKey, starter: _user.userId);
   }
 
   Future<GroupKey> keyRotation([bool sign = false]) async {
@@ -782,17 +600,7 @@ class Group extends AbstractSymCrypto {
       signKey = await getSignKey();
     }
 
-    final keyId = await Sentc.getApi().groupKeyRotation(
-      baseUrl: baseUrl,
-      authToken: appToken,
-      jwt: jwt,
-      id: groupId,
-      publicKey: publicKey,
-      preGroupKey: _getNewestKey()!.groupKey,
-      signKey: signKey,
-      starter: _user.userId,
-      groupAsMember: accessByGroupAsMember,
-    );
+    final keyId = await Sentc.getApi().groupKeyRotation(baseUrl: baseUrl, authToken: appToken, jwt: jwt, id: groupId, publicKey: publicKey, preGroupKey: _getNewestKey()!.groupKey, signKey: signKey, starter: _user.userId, groupAsMember: accessByGroupAsMember);
 
     return getGroupKey(keyId, true);
   }
@@ -802,13 +610,7 @@ class Group extends AbstractSymCrypto {
 
     final api = Sentc.getApi();
 
-    var keys = await api.groupPreDoneKeyRotation(
-      baseUrl: baseUrl,
-      authToken: appToken,
-      jwt: jwt,
-      id: groupId,
-      groupAsMember: accessByGroupAsMember,
-    );
+    var keys = await api.groupPreDoneKeyRotation(baseUrl: baseUrl, authToken: appToken, jwt: jwt, id: groupId, groupAsMember: accessByGroupAsMember);
 
     if (keys.isEmpty) {
       return;
@@ -839,12 +641,9 @@ class Group extends AbstractSymCrypto {
 
         String? verifyKey;
 
-        if (verify &&
-            key.signedByUserId != null &&
-            key.signedByUserSignKeyId != null) {
+        if (verify && key.signedByUserId != null && key.signedByUserSignKeyId != null) {
           try {
-            verifyKey = await Sentc.getUserVerifyKey(
-                key.signedByUserId!, key.signedByUserSignKeyId!);
+            verifyKey = await Sentc.getUserVerifyKey(key.signedByUserId!, key.signedByUserSignKeyId!);
           } catch (e) {
             final err = SentcError.fromJson(jsonDecode(e.toString()));
 
@@ -855,18 +654,7 @@ class Group extends AbstractSymCrypto {
           }
         }
 
-        await api.groupFinishKeyRotation(
-          baseUrl: baseUrl,
-          authToken: appToken,
-          jwt: jwt,
-          id: groupId,
-          serverOutput: key.serverOutput,
-          preGroupKey: preKey.groupKey,
-          publicKey: publicKey,
-          privateKey: privateKey,
-          verifyKey: verifyKey,
-          groupAsMember: accessByGroupAsMember,
-        );
+        await api.groupFinishKeyRotation(baseUrl: baseUrl, authToken: appToken, jwt: jwt, id: groupId, serverOutput: key.serverOutput, preGroupKey: preKey.groupKey, publicKey: publicKey, privateKey: privateKey, verifyKey: verifyKey, groupAsMember: accessByGroupAsMember);
 
         //now get the new key and safe it
         await getGroupKey(key.newGroupKeyId, true);
@@ -902,23 +690,13 @@ class Group extends AbstractSymCrypto {
   //admin fn for user management
 
   Future<String> prepareUpdateRank(String userId, int newRank) {
-    return Sentc.getApi()
-        .groupPrepareUpdateRank(userId: userId, rank: rank, adminRank: rank);
+    return Sentc.getApi().groupPrepareUpdateRank(userId: userId, rank: rank, adminRank: rank);
   }
 
   Future<void> updateRank(String userId, int newRank) async {
     final jwt = await getJwt();
 
-    await Sentc.getApi().groupUpdateRank(
-      baseUrl: baseUrl,
-      authToken: appToken,
-      jwt: jwt,
-      id: groupId,
-      userId: userId,
-      rank: newRank,
-      adminRank: rank,
-      groupAsMember: accessByGroupAsMember,
-    );
+    await Sentc.getApi().groupUpdateRank(baseUrl: baseUrl, authToken: appToken, jwt: jwt, id: groupId, userId: userId, rank: newRank, adminRank: rank, groupAsMember: accessByGroupAsMember);
 
     String actualUserId;
     if (accessByGroupAsMember == null) {
@@ -943,15 +721,7 @@ class Group extends AbstractSymCrypto {
   Future<void> kickUser(String userId) async {
     final jwt = await getJwt();
 
-    return Sentc.getApi().groupKickUser(
-      baseUrl: baseUrl,
-      authToken: appToken,
-      jwt: jwt,
-      id: groupId,
-      userId: userId,
-      adminRank: rank,
-      groupAsMember: accessByGroupAsMember,
-    );
+    return Sentc.getApi().groupKickUser(baseUrl: baseUrl, authToken: appToken, jwt: jwt, id: groupId, userId: userId, adminRank: rank, groupAsMember: accessByGroupAsMember);
   }
 
   //____________________________________________________________________________________________________________________
@@ -959,13 +729,7 @@ class Group extends AbstractSymCrypto {
   Future<void> leave() async {
     final jwt = await getJwt();
 
-    return Sentc.getApi().leaveGroup(
-      baseUrl: baseUrl,
-      authToken: appToken,
-      jwt: jwt,
-      id: groupId,
-      groupAsMember: accessByGroupAsMember,
-    );
+    return Sentc.getApi().leaveGroup(baseUrl: baseUrl, authToken: appToken, jwt: jwt, id: groupId, groupAsMember: accessByGroupAsMember);
   }
 
   //____________________________________________________________________________________________________________________
@@ -977,105 +741,50 @@ class Group extends AbstractSymCrypto {
     final lastFetchedTime = lastFetchedItem?.time.toString() ?? "0";
     final lastFetchedGroupId = lastFetchedItem?.groupId ?? "none";
 
-    return Sentc.getApi().groupGetGroupsForUser(
-      baseUrl: baseUrl,
-      authToken: appToken,
-      jwt: jwt,
-      lastFetchedTime: lastFetchedTime,
-      lastFetchedGroupId: lastFetchedGroupId,
-      groupId: groupId,
-    );
+    return Sentc.getApi().groupGetGroupsForUser(baseUrl: baseUrl, authToken: appToken, jwt: jwt, lastFetchedTime: lastFetchedTime, lastFetchedGroupId: lastFetchedGroupId, groupId: groupId);
   }
 
-  Future<List<GroupInviteReqList>> getGroupInvites(
-      [GroupInviteReqList? lastItem]) async {
+  Future<List<GroupInviteReqList>> getGroupInvites([GroupInviteReqList? lastItem]) async {
     final jwt = await getJwt();
 
     final lastFetchedTime = lastItem?.time.toString() ?? "0";
     final lastFetchedGroupId = lastItem?.groupId ?? "none";
 
-    return Sentc.getApi().groupGetInvitesForUser(
-      baseUrl: baseUrl,
-      authToken: appToken,
-      jwt: jwt,
-      lastFetchedTime: lastFetchedTime,
-      lastFetchedGroupId: lastFetchedGroupId,
-      groupId: groupId,
-      groupAsMember: accessByGroupAsMember,
-    );
+    return Sentc.getApi().groupGetInvitesForUser(baseUrl: baseUrl, authToken: appToken, jwt: jwt, lastFetchedTime: lastFetchedTime, lastFetchedGroupId: lastFetchedGroupId, groupId: groupId, groupAsMember: accessByGroupAsMember);
   }
 
   Future<void> acceptGroupInvite(String groupIdToAccept) async {
     final jwt = await getJwt();
 
-    return Sentc.getApi().groupAcceptInvite(
-      baseUrl: baseUrl,
-      authToken: appToken,
-      jwt: jwt,
-      id: groupIdToAccept,
-      groupId: groupId,
-      groupAsMember: accessByGroupAsMember,
-    );
+    return Sentc.getApi().groupAcceptInvite(baseUrl: baseUrl, authToken: appToken, jwt: jwt, id: groupIdToAccept, groupId: groupId, groupAsMember: accessByGroupAsMember);
   }
 
   Future<void> rejectGroupInvite(groupIdToReject) async {
     final jwt = await getJwt();
 
-    return Sentc.getApi().groupRejectInvite(
-      baseUrl: baseUrl,
-      authToken: appToken,
-      jwt: jwt,
-      id: groupIdToReject,
-      groupId: groupId,
-      groupAsMember: accessByGroupAsMember,
-    );
+    return Sentc.getApi().groupRejectInvite(baseUrl: baseUrl, authToken: appToken, jwt: jwt, id: groupIdToReject, groupId: groupId, groupAsMember: accessByGroupAsMember);
   }
 
   //join req to another group
   Future<void> groupJoinRequest(String groupIdToJoin) async {
     final jwt = await getJwt();
 
-    return Sentc.getApi().groupJoinReq(
-      baseUrl: baseUrl,
-      authToken: appToken,
-      jwt: jwt,
-      id: groupIdToJoin,
-      groupId: groupId,
-      groupAsMember: accessByGroupAsMember,
-    );
+    return Sentc.getApi().groupJoinReq(baseUrl: baseUrl, authToken: appToken, jwt: jwt, id: groupIdToJoin, groupId: groupId, groupAsMember: accessByGroupAsMember);
   }
 
-  Future<List<GroupInviteReqList>> sentJoinReq(
-      [GroupInviteReqList? lastFetchedItem]) async {
+  Future<List<GroupInviteReqList>> sentJoinReq([GroupInviteReqList? lastFetchedItem]) async {
     final jwt = await getJwt();
 
     final lastFetchedTime = lastFetchedItem?.time.toString() ?? "0";
     final lastFetchedGroupId = lastFetchedItem?.groupId ?? "none";
 
-    return Sentc.getApi().groupGetSentJoinReq(
-      baseUrl: baseUrl,
-      authToken: appToken,
-      jwt: jwt,
-      id: groupId,
-      adminRank: rank,
-      lastFetchedTime: lastFetchedTime,
-      lastFetchedGroupId: lastFetchedGroupId,
-      groupAsMember: accessByGroupAsMember,
-    );
+    return Sentc.getApi().groupGetSentJoinReq(baseUrl: baseUrl, authToken: appToken, jwt: jwt, id: groupId, adminRank: rank, lastFetchedTime: lastFetchedTime, lastFetchedGroupId: lastFetchedGroupId, groupAsMember: accessByGroupAsMember);
   }
 
   Future<void> deleteJoinReq(String id) async {
     final jwt = await getJwt();
 
-    return Sentc.getApi().groupDeleteSentJoinReq(
-      baseUrl: baseUrl,
-      authToken: appToken,
-      jwt: jwt,
-      id: groupId,
-      adminRank: rank,
-      joinReqGroupId: id,
-      groupAsMember: accessByGroupAsMember,
-    );
+    return Sentc.getApi().groupDeleteSentJoinReq(baseUrl: baseUrl, authToken: appToken, jwt: jwt, id: groupId, adminRank: rank, joinReqGroupId: id, groupAsMember: accessByGroupAsMember);
   }
 
   //____________________________________________________________________________________________________________________
@@ -1084,18 +793,10 @@ class Group extends AbstractSymCrypto {
   Future<void> stopInvites() async {
     final jwt = await getJwt();
 
-    return Sentc.getApi().groupStopGroupInvites(
-      baseUrl: baseUrl,
-      authToken: appToken,
-      jwt: jwt,
-      id: groupId,
-      adminRank: rank,
-      groupAsMember: accessByGroupAsMember,
-    );
+    return Sentc.getApi().groupStopGroupInvites(baseUrl: baseUrl, authToken: appToken, jwt: jwt, id: groupId, adminRank: rank, groupAsMember: accessByGroupAsMember);
   }
 
-  Future<String> prepareKeysForNewMember(String userId, int? rank,
-      [int page = 0, bool group = false]) async {
+  Future<String> prepareKeysForNewMember(String userId, int? rank, [int page = 0, bool group = false]) async {
     final keyCount = _keys.length;
 
     String publicKey;
@@ -1110,17 +811,10 @@ class Group extends AbstractSymCrypto {
 
     final keyString = prepareKeys(_keys, page).str;
 
-    return Sentc.getApi().groupPrepareKeysForNewMember(
-      userPublicKey: publicKey,
-      groupKeys: keyString,
-      keyCount: keyCount,
-      adminRank: this.rank,
-      rank: rank,
-    );
+    return Sentc.getApi().groupPrepareKeysForNewMember(userPublicKey: publicKey, groupKeys: keyString, keyCount: keyCount, adminRank: this.rank, rank: rank);
   }
 
-  handleInviteSessionKeysForNewMember(String sessionId, String userId,
-      [bool auto = false, bool group = false]) async {
+  handleInviteSessionKeysForNewMember(String sessionId, String userId, [bool auto = false, bool group = false]) async {
     if (sessionId == "") {
       return;
     }
@@ -1146,17 +840,7 @@ class Group extends AbstractSymCrypto {
       final nextKeys = prepareKeys(_keys, i);
       nextPage = nextKeys.end;
 
-      p.add(api.groupInviteUserSession(
-        baseUrl: baseUrl,
-        authToken: appToken,
-        jwt: jwt,
-        id: groupId,
-        autoInvite: auto,
-        sessionId: sessionId,
-        userPublicKey: publicKey,
-        groupKeys: nextKeys.str,
-        groupAsMember: accessByGroupAsMember,
-      ));
+      p.add(api.groupInviteUserSession(baseUrl: baseUrl, authToken: appToken, jwt: jwt, id: groupId, autoInvite: auto, sessionId: sessionId, userPublicKey: publicKey, groupKeys: nextKeys.str, groupAsMember: accessByGroupAsMember));
 
       i++;
     }
@@ -1188,13 +872,7 @@ class Group extends AbstractSymCrypto {
     return _inviteUserInternally(groupId, null, false, true, true);
   }
 
-  Future<void> _inviteUserInternally(
-    String userId,
-    int? rank, [
-    bool auto = false,
-    bool group = false,
-    bool reInvite = false,
-  ]) async {
+  Future<void> _inviteUserInternally(String userId, int? rank, [bool auto = false, bool group = false, bool reInvite = false]) async {
     String publicKey;
 
     if (group) {
@@ -1240,17 +918,7 @@ class Group extends AbstractSymCrypto {
       final nextKeys = prepareKeys(_keys, i);
       nextPage = nextKeys.end;
 
-      p.add(api.groupInviteUserSession(
-        baseUrl: baseUrl,
-        authToken: appToken,
-        jwt: jwt,
-        id: groupId,
-        autoInvite: auto,
-        sessionId: sessionId,
-        userPublicKey: publicKey,
-        groupKeys: nextKeys.str,
-        groupAsMember: accessByGroupAsMember,
-      ));
+      p.add(api.groupInviteUserSession(baseUrl: baseUrl, authToken: appToken, jwt: jwt, id: groupId, autoInvite: auto, sessionId: sessionId, userPublicKey: publicKey, groupKeys: nextKeys.str, groupAsMember: accessByGroupAsMember));
 
       i++;
     }
@@ -1261,41 +929,22 @@ class Group extends AbstractSymCrypto {
   //____________________________________________________________________________________________________________________
   //join req
 
-  Future<List<GroupJoinReqList>> getJoinRequests(
-      [GroupJoinReqList? lastFetchedItem]) async {
+  Future<List<GroupJoinReqList>> getJoinRequests([GroupJoinReqList? lastFetchedItem]) async {
     final jwt = await getJwt();
 
     final lastFetchedTime = lastFetchedItem?.time ?? "0";
     final lastFetchedId = lastFetchedItem?.userId ?? "none";
 
-    return Sentc.getApi().groupGetJoinReqs(
-      baseUrl: baseUrl,
-      authToken: appToken,
-      jwt: jwt,
-      id: groupId,
-      adminRank: rank,
-      lastFetchedTime: lastFetchedTime,
-      lastFetchedId: lastFetchedId,
-      groupAsMember: accessByGroupAsMember,
-    );
+    return Sentc.getApi().groupGetJoinReqs(baseUrl: baseUrl, authToken: appToken, jwt: jwt, id: groupId, adminRank: rank, lastFetchedTime: lastFetchedTime, lastFetchedId: lastFetchedId, groupAsMember: accessByGroupAsMember);
   }
 
   Future<void> rejectJoinRequest(String userId) async {
     final jwt = await getJwt();
 
-    return Sentc.getApi().groupRejectJoinReq(
-      baseUrl: baseUrl,
-      authToken: appToken,
-      jwt: jwt,
-      id: groupId,
-      adminRank: rank,
-      rejectedUserId: userId,
-      groupAsMember: accessByGroupAsMember,
-    );
+    return Sentc.getApi().groupRejectJoinReq(baseUrl: baseUrl, authToken: appToken, jwt: jwt, id: groupId, adminRank: rank, rejectedUserId: userId, groupAsMember: accessByGroupAsMember);
   }
 
-  Future<void> acceptJoinRequest(String userId,
-      [int userType = 0, int? rank]) async {
+  Future<void> acceptJoinRequest(String userId, [int userType = 0, int? rank]) async {
     final jwt = await getJwt();
     final api = Sentc.getApi();
 
@@ -1312,19 +961,7 @@ class Group extends AbstractSymCrypto {
       publicKey = k.publicKey;
     }
 
-    final sessionId = await api.groupAcceptJoinReq(
-      baseUrl: baseUrl,
-      authToken: appToken,
-      jwt: jwt,
-      id: groupId,
-      userId: userId,
-      keyCount: keyCount,
-      rank: rank,
-      adminRank: this.rank,
-      userPublicKey: publicKey,
-      groupKeys: keyString,
-      groupAsMember: accessByGroupAsMember,
-    );
+    final sessionId = await api.groupAcceptJoinReq(baseUrl: baseUrl, authToken: appToken, jwt: jwt, id: groupId, userId: userId, keyCount: keyCount, rank: rank, adminRank: this.rank, userPublicKey: publicKey, groupKeys: keyString, groupAsMember: accessByGroupAsMember);
 
     if (sessionId == "") {
       return;
@@ -1338,16 +975,7 @@ class Group extends AbstractSymCrypto {
       final nextKeys = prepareKeys(_keys, i);
       nextPage = nextKeys.end;
 
-      p.add(api.groupJoinUserSession(
-        baseUrl: baseUrl,
-        authToken: appToken,
-        jwt: jwt,
-        id: groupId,
-        sessionId: sessionId,
-        userPublicKey: publicKey,
-        groupKeys: nextKeys.str,
-        groupAsMember: accessByGroupAsMember,
-      ));
+      p.add(api.groupJoinUserSession(baseUrl: baseUrl, authToken: appToken, jwt: jwt, id: groupId, sessionId: sessionId, userPublicKey: publicKey, groupKeys: nextKeys.str, groupAsMember: accessByGroupAsMember));
 
       i++;
     }
@@ -1365,25 +993,17 @@ class Group extends AbstractSymCrypto {
     final keyOut = await generateNonRegisteredKey();
     final key = keyOut.key;
 
-    final uploader = Uploader(
-        baseUrl, appToken, _user, groupId, null, null, accessByGroupAsMember);
+    final uploader = Uploader(baseUrl, appToken, _user, groupId, null, null, accessByGroupAsMember);
 
-    final out = await uploader.prepareFileRegister(
-        file, key.key, keyOut.encryptedKey, key.masterKeyId);
+    final out = await uploader.prepareFileRegister(file, key.key, keyOut.encryptedKey, key.masterKeyId);
 
-    return FilePrepareCreateOutput(
-      encryptedFileName: out.encryptedFileName,
-      key: key,
-      masterKeyId: key.masterKeyId,
-      serverInput: out.serverInput,
-    );
+    return FilePrepareCreateOutput(encryptedFileName: out.encryptedFileName, key: key, masterKeyId: key.masterKeyId, serverInput: out.serverInput);
   }
 
   /// Validates the sentc file register output
   /// Returns the file id
   Future<FileDoneRegister> doneFileRegister(String serverOutput) {
-    final uploader = Uploader(
-        baseUrl, appToken, _user, groupId, null, null, accessByGroupAsMember);
+    final uploader = Uploader(baseUrl, appToken, _user, groupId, null, null, accessByGroupAsMember);
 
     return uploader.doneFileRegister(serverOutput);
   }
@@ -1395,62 +1015,38 @@ class Group extends AbstractSymCrypto {
   /// upload the chunks signed by the creators sign key
   ///
   /// Show the upload progress of how many chunks are already uploaded with the uploadCallback
-  Future<void> uploadFile({
-    required File file,
-    required SymKey contentKey,
-    required String sessionId,
-    bool sign = false,
-    void Function(double progress)? uploadCallback,
-  }) {
-    final uploader = Uploader(baseUrl, appToken, _user, groupId, null,
-        uploadCallback, accessByGroupAsMember);
+  Future<void> uploadFile({required File file, required SymKey contentKey, required String sessionId, bool sign = false, void Function(double progress)? uploadCallback}) {
+    final uploader = Uploader(baseUrl, appToken, _user, groupId, null, uploadCallback, accessByGroupAsMember);
 
     return uploader.checkFileUpload(file, contentKey.key, sessionId, sign);
   }
 
   //____________________________________________________________________________________________________________________
 
-  Future<FileCreateOutput> createFileWithPath({
-    required String path,
-    bool sign = false,
-    void Function(double progress)? uploadCallback,
-  }) {
+  Future<FileCreateOutput> createFileWithPath({required String path, bool sign = false, void Function(double progress)? uploadCallback}) {
     final file = File(path);
 
     return createFile(file: file, sign: sign, uploadCallback: uploadCallback);
   }
 
-  Future<FileCreateOutput> createFile({
-    required File file,
-    bool sign = false,
-    void Function(double progress)? uploadCallback,
-  }) async {
+  Future<FileCreateOutput> createFile({required File file, bool sign = false, void Function(double progress)? uploadCallback}) async {
     final keyOut = await generateNonRegisteredKey();
     final key = keyOut.key;
 
-    final uploader = Uploader(baseUrl, appToken, _user, groupId, null,
-        uploadCallback, accessByGroupAsMember);
+    final uploader = Uploader(baseUrl, appToken, _user, groupId, null, uploadCallback, accessByGroupAsMember);
 
-    final out = await uploader.uploadFile(
-        file, key.key, keyOut.encryptedKey, key.masterKeyId, sign);
+    final out = await uploader.uploadFile(file, key.key, keyOut.encryptedKey, key.masterKeyId, sign);
 
     return FileCreateOutput(out.fileId, key.masterKeyId, out.encryptedFileName);
   }
 
-  Future<DownloadResult> _getFileMetaInfo(
-    String fileId,
-    Downloader downloader, [
-    String? verifyKey,
-  ]) async {
+  Future<DownloadResult> _getFileMetaInfo(String fileId, Downloader downloader, [String? verifyKey]) async {
     final fileMeta = await downloader.downloadFileMetaInformation(fileId);
 
-    final key = await this
-        .getNonRegisteredKey(fileMeta.masterKeyId, fileMeta.encryptedKey);
+    final key = await this.getNonRegisteredKey(fileMeta.masterKeyId, fileMeta.encryptedKey);
 
-    if (fileMeta.encryptedFileName != null &&
-        fileMeta.encryptedFileName != "") {
-      fileMeta.fileName =
-          await key.decryptString(fileMeta.encryptedFileName!, verifyKey);
+    if (fileMeta.encryptedFileName != null && fileMeta.encryptedFileName != "") {
+      fileMeta.fileName = await key.decryptString(fileMeta.encryptedFileName!, verifyKey);
     }
 
     return DownloadResult(fileMeta, key);
@@ -1461,10 +1057,8 @@ class Group extends AbstractSymCrypto {
   ///
   /// This is usefully if the user wants to show information about the file (e.g. the file name) but not download the file
   /// The meta info is also needed for the download file functions
-  Future<DownloadResult> downloadFileMetaInfo(String fileId,
-      [String? verifyKey]) {
-    final downloader =
-        Downloader(baseUrl, appToken, _user, groupId, accessByGroupAsMember);
+  Future<DownloadResult> downloadFileMetaInfo(String fileId, [String? verifyKey]) {
+    final downloader = Downloader(baseUrl, appToken, _user, groupId, accessByGroupAsMember);
 
     return _getFileMetaInfo(fileId, downloader, verifyKey);
   }
@@ -1474,18 +1068,10 @@ class Group extends AbstractSymCrypto {
   /// This function can be used after the downloadFileMetaInfo function
   /// Keep in mind that you must use a file which doesn't exists yet.
   /// otherwise the decrypted bytes will be attached to the file
-  Future<void> downloadFileWithMetaInfo({
-    required File file,
-    required SymKey key,
-    required FileMetaInformation fileMeta,
-    String? verifyKey,
-    void Function(double progress)? updateProgressCb,
-  }) {
-    final downloader =
-        Downloader(baseUrl, appToken, _user, groupId, accessByGroupAsMember);
+  Future<void> downloadFileWithMetaInfo({required File file, required SymKey key, required FileMetaInformation fileMeta, String? verifyKey, void Function(double progress)? updateProgressCb}) {
+    final downloader = Downloader(baseUrl, appToken, _user, groupId, accessByGroupAsMember);
 
-    return downloader.downloadFileParts(
-        file, fileMeta.partList, key.key, updateProgressCb, verifyKey);
+    return downloader.downloadFileParts(file, fileMeta.partList, key.key, updateProgressCb, verifyKey);
   }
 
   //____________________________________________________________________________________________________________________
@@ -1495,19 +1081,12 @@ class Group extends AbstractSymCrypto {
   /// This can be used if the user wants a specific file.
   /// Need to obtain a file object
   /// This will not check if the file exists
-  Future<DownloadResult> downloadFileWithFile({
-    required File file,
-    required String fileId,
-    String? verifyKey,
-    void Function(double progress)? updateProgressCb,
-  }) async {
-    final downloader =
-        Downloader(baseUrl, appToken, _user, groupId, accessByGroupAsMember);
+  Future<DownloadResult> downloadFileWithFile({required File file, required String fileId, String? verifyKey, void Function(double progress)? updateProgressCb}) async {
+    final downloader = Downloader(baseUrl, appToken, _user, groupId, accessByGroupAsMember);
 
     final fileMeta = await _getFileMetaInfo(fileId, downloader, verifyKey);
 
-    await downloader.downloadFileParts(file, fileMeta.meta.partList,
-        fileMeta.key.key, updateProgressCb, verifyKey);
+    await downloader.downloadFileParts(file, fileMeta.meta.partList, fileMeta.key.key, updateProgressCb, verifyKey);
 
     return fileMeta;
   }
@@ -1517,14 +1096,8 @@ class Group extends AbstractSymCrypto {
   /// to the given path. The path must be an directory
   /// This functions uses the real file name.
   /// An available file name will be selected based on the real file name
-  Future<DownloadResult> downloadFile({
-    required String path,
-    required String fileId,
-    String? verifyKey,
-    void Function(double progress)? updateProgressCb,
-  }) async {
-    final downloader =
-        Downloader(baseUrl, appToken, _user, groupId, accessByGroupAsMember);
+  Future<DownloadResult> downloadFile({required String path, required String fileId, String? verifyKey, void Function(double progress)? updateProgressCb}) async {
+    final downloader = Downloader(baseUrl, appToken, _user, groupId, accessByGroupAsMember);
 
     final fileMeta = await _getFileMetaInfo(fileId, downloader, verifyKey);
 
@@ -1537,8 +1110,7 @@ class Group extends AbstractSymCrypto {
       file = File(availableFileName);
     }
 
-    await downloader.downloadFileParts(file, fileMeta.meta.partList,
-        fileMeta.key.key, updateProgressCb, verifyKey);
+    await downloader.downloadFileParts(file, fileMeta.meta.partList, fileMeta.key.key, updateProgressCb, verifyKey);
 
     return fileMeta;
   }
@@ -1546,14 +1118,7 @@ class Group extends AbstractSymCrypto {
   Future<void> deleteFile(String fileId) async {
     final jwt = await getJwt();
 
-    return Sentc.getApi().fileDeleteFile(
-      baseUrl: baseUrl,
-      authToken: appToken,
-      jwt: jwt,
-      fileId: fileId,
-      groupId: groupId,
-      groupAsMember: accessByGroupAsMember,
-    );
+    return Sentc.getApi().fileDeleteFile(baseUrl: baseUrl, authToken: appToken, jwt: jwt, fileId: fileId, groupId: groupId, groupAsMember: accessByGroupAsMember);
   }
 
   //____________________________________________________________________________________________________________________
@@ -1562,16 +1127,13 @@ class Group extends AbstractSymCrypto {
   Future<List<String>> createSearchRaw(String data, [bool? full, int? limit]) {
     final key = getNewestHmacKey();
 
-    return Sentc.getApi().createSearchableRaw(
-        key: key, data: data, full: full ?? false, limit: limit);
+    return Sentc.getApi().createSearchableRaw(key: key, data: data, full: full ?? false, limit: limit);
   }
 
-  Future<SearchableCreateOutput> createSearch(String data,
-      [bool? full, int? limit]) {
+  Future<SearchableCreateOutput> createSearch(String data, [bool? full, int? limit]) {
     final key = getNewestHmacKey();
 
-    return Sentc.getApi().createSearchable(
-        key: key, data: data, full: full ?? false, limit: limit);
+    return Sentc.getApi().createSearchable(key: key, data: data, full: full ?? false, limit: limit);
   }
 
   Future<String> search(String data) {
