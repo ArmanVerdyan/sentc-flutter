@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:sentc/src/crypto/abstract_sym_crypto.dart';
 import 'package:sentc/sentc.dart';
+import 'package:sentc/src/crypto/abstract_sym_crypto.dart';
+
 import '../src/generated.dart' as plugin;
 
 PrepareKeysResult prepareKeys(List<GroupKey> keys, int page) {
@@ -63,12 +64,12 @@ Future<Group> getGroup(
 
   final groupJson = await storage.getItem(groupKey);
 
-  final jwt = await user.getJwt();
-
   if (groupJson != null) {
     final group = Group.fromJson(jsonDecode(groupJson), baseUrl, appToken, user, parent);
 
     if (group.lastCheckTime + 60000 * 5 < DateTime.now().millisecondsSinceEpoch) {
+      final jwt = await user.getJwt();
+
       //load the group from json data and just look for group updates
       final update = await Sentc.getApi().groupGetGroupUpdates(
         baseUrl: baseUrl,
@@ -88,6 +89,8 @@ Future<Group> getGroup(
 
     return group;
   }
+
+  final jwt = await user.getJwt();
 
   //group data was not in the cache
   final out = await Sentc.getApi().groupGetGroupData(
@@ -195,14 +198,7 @@ class GroupKey extends plugin.GroupKeyData {
         exportedPublicKey: json["exportedPublicKey"] as String,
       );
 
-  Map<String, dynamic> toJson() => <String, dynamic>{
-        'privateGroupKey': privateGroupKey,
-        'publicGroupKey': publicGroupKey,
-        'groupKey': groupKey,
-        'time': time,
-        'groupKeyId': groupKeyId,
-        'exportedPublicKey': exportedPublicKey
-      };
+  Map<String, dynamic> toJson() => <String, dynamic>{'privateGroupKey': privateGroupKey, 'publicGroupKey': publicGroupKey, 'groupKey': groupKey, 'time': time, 'groupKeyId': groupKeyId, 'exportedPublicKey': exportedPublicKey};
 
   factory GroupKey.fromServer(GroupKeyData key) => GroupKey(
         privateGroupKey: key.privateGroupKey,
@@ -559,8 +555,7 @@ class Group extends AbstractSymCrypto {
         }
       }
 
-      final decryptedKeys = await Sentc.getApi()
-          .groupDecryptKey(privateKey: privateKey, serverKeyData: key.keyData, verifyKey: verifyKey);
+      final decryptedKeys = await Sentc.getApi().groupDecryptKey(privateKey: privateKey, serverKeyData: key.keyData, verifyKey: verifyKey);
 
       list.add(GroupKey.fromServer(decryptedKeys));
     }
