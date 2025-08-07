@@ -40,7 +40,7 @@ class PrepareKeysResult {
 }
 
 //______________________________________________________________________________________________________________________
-Future<Group> getGroup(String groupId, String baseUrl, String appToken, User user, [bool parent = false, String? groupAsMember, bool rek = false]) async {
+Future<Group> getGroup(String groupId, String baseUrl, String appToken, User user, [bool parent = false, String? groupAsMember, bool rek = false, bool forceUpdate = false]) async {
   final storage = Sentc.getStorage();
 
   String userId;
@@ -58,7 +58,7 @@ Future<Group> getGroup(String groupId, String baseUrl, String appToken, User use
   if (groupJson != null) {
     final group = Group.fromJson(jsonDecode(groupJson), baseUrl, appToken, user, parent);
 
-    if (group.lastCheckTime + 60000 * 5 < DateTime.now().millisecondsSinceEpoch) {
+    if (group.lastCheckTime + 60000 * 5 < DateTime.now().millisecondsSinceEpoch || forceUpdate) {
       final jwt = await user.getJwt();
 
       //load the group from json data and just look for group updates
@@ -191,20 +191,20 @@ class Group extends AbstractSymCrypto {
   );
 
   Group.fromJson(Map<String, dynamic> json, super.baseUrl, super.appToken, this._user, this._fromParent)
-    : groupId = json["groupId"],
-      lastCheckTime = json["lastCheckTime"],
-      keyUpdate = json["keyUpdate"],
-      parentGroupId = json["parentGroupId"],
-      createdTime = json["createdTime"],
-      joinedTime = json["joinedTime"],
-      rank = json["rank"],
-      _keyMap = Map<String, int>.from(jsonDecode(json["keyMap"]) as Map<String, dynamic>),
-      _newestKeyId = json["newestKeyId"],
-      accessByParentGroup = json["accessByParentGroup"],
-      accessByGroupAsMember = json["accessByGroupAsMember"],
-      _keys = (jsonDecode(json["keys"]) as List).map((e) => GroupKey.fromJson(e)).toList(),
-      _hmacKeys = (jsonDecode(json["hmacKeys"]) as List<dynamic>).map((e) => e as String).toList(),
-      _sortableKeys = (jsonDecode(json["sortableKeys"]) as List<dynamic>).map((e) => e as String).toList();
+      : groupId = json["groupId"],
+        lastCheckTime = json["lastCheckTime"],
+        keyUpdate = json["keyUpdate"],
+        parentGroupId = json["parentGroupId"],
+        createdTime = json["createdTime"],
+        joinedTime = json["joinedTime"],
+        rank = json["rank"],
+        _keyMap = Map<String, int>.from(jsonDecode(json["keyMap"]) as Map<String, dynamic>),
+        _newestKeyId = json["newestKeyId"],
+        accessByParentGroup = json["accessByParentGroup"],
+        accessByGroupAsMember = json["accessByGroupAsMember"],
+        _keys = (jsonDecode(json["keys"]) as List).map((e) => GroupKey.fromJson(e)).toList(),
+        _hmacKeys = (jsonDecode(json["hmacKeys"]) as List<dynamic>).map((e) => e as String).toList(),
+        _sortableKeys = (jsonDecode(json["sortableKeys"]) as List<dynamic>).map((e) => e as String).toList();
 
   Map<String, dynamic> toJson() {
     return {

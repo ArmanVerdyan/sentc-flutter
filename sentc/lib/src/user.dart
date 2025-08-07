@@ -1,9 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:sentc/sentc.dart';
 import 'package:sentc/src/crypto/abstract_asym_crypto.dart';
 import 'package:sentc/src/group.dart' as group;
-import 'package:sentc/sentc.dart';
+
 import '../src/generated.dart' as plugin;
 
 Future<User> getUser(String deviceIdentifier, UserData data, bool mfa) async {
@@ -664,8 +665,7 @@ class User extends AbstractAsymCrypto {
   Future<void> finishKeyRotation() async {
     final jwt = await getJwt();
 
-    List<KeyRotationGetOut> keys =
-        await Sentc.getApi().userPreDoneKeyRotation(baseUrl: baseUrl, authToken: appToken, jwt: jwt);
+    List<KeyRotationGetOut> keys = await Sentc.getApi().userPreDoneKeyRotation(baseUrl: baseUrl, authToken: appToken, jwt: jwt);
 
     bool nextRound = false;
     int roundsLeft = 10;
@@ -733,8 +733,8 @@ class User extends AbstractAsymCrypto {
     );
   }
 
-  Future<group.Group> getGroup(String groupId, [String? groupAsMember]) {
-    return group.getGroup(groupId, baseUrl, appToken, this, false, groupAsMember);
+  Future<group.Group> getGroup(String groupId, [String? groupAsMember, bool forceUpdate = false]) {
+    return group.getGroup(groupId, baseUrl, appToken, this, false, groupAsMember, forceUpdate);
   }
 
   Future<List<ListGroups>> getGroups([ListGroups? lastFetchedItem]) async {
